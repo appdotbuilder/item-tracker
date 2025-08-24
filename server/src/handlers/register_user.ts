@@ -1,21 +1,68 @@
+import { db } from '../db';
+import { usersTable } from '../db/schema';
 import { type RegisterUserInput, type AuthResponse } from '../schema';
+import { eq, or } from 'drizzle-orm';
+import crypto from 'crypto';
 
-export async function registerUser(input: RegisterUserInput): Promise<AuthResponse> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is:
-    // 1. Validate that email and username are not already taken
-    // 2. Hash the password using bcrypt or similar
-    // 3. Create new user record in database
-    // 4. Return user data (without password hash) and optional JWT token
+export const registerUser = async (input: RegisterUserInput): Promise<AuthResponse> => {
+  try {
+    // Check if email or username already exists
+    const existingUser = await db.select()
+      .from(usersTable)
+      .where(or(
+        eq(usersTable.email, input.email),
+        eq(usersTable.username, input.username)
+      ))
+      .execute();
+
+    if (existingUser.length > 0) {
+      const duplicateField = existingUser[0].email === input.email ? 'email' : 'username';
+      throw new Error(`User with this ${duplicateField} already exists`);
+    }
+
+    // Hash the password using crypto.pbkdf2
+    const salt = crypto.randomBytes(16).toString('hex');
+    const iterations = 10000;
+    const keylen = 64;
+    const digest = 'sha256';
     
-    return Promise.resolve({
-        user: {
-            id: 0, // Placeholder ID
-            email: input.email,
-            username: input.username,
-            created_at: new Date(),
-            updated_at: new Date()
-        },
-        token: "placeholder-jwt-token" // JWT token for authentication
-    } as AuthResponse);
-}
+    const hash = crypto.pbkdf2Sync(input.password, salt, iterations, keylen, digest).toString('hex');
+    const passwordHash = `${salt}:${iterations}:${hash}`;
+
+    // Create new user
+    const result = await db.insert(usersTable)
+      .values({
+        email: input.email,
+        username: input.username,
+        password_hash: passwordHash
+      })
+      .returning()
+      .execute();
+
+    const newUser = result[0];
+
+    // Return user data without password hash
+    return {
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        username: newUser.username,
+        created_at: newUser.created_at,
+        updated_at: newUser.updated_at
+      }
+    };
+  } catch (error) {
+    console.error('User registration failed:', error);
+    throw error;
+  }
+};
+
+// Helper function to verify password (for future use)
+export const verifyPassword = (password: string, hashedPassword: string): boolean => {
+  const [salt, iterations, hash] = hashedPassword.split(':');
+  const keylen = 64;
+  const digest = 'sha256';
+  
+  const testHash = crypto.pbkdf2Sync(password, salt, parseInt(iterations), keylen, digest).toString('hex');
+  return testHash === hash;
+};

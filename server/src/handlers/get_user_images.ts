@@ -1,23 +1,31 @@
+import { db } from '../db';
+import { imagesTable, usersTable } from '../db/schema';
 import { type GetUserImagesInput, type Image } from '../schema';
+import { eq, desc } from 'drizzle-orm';
 
-export async function getUserImages(input: GetUserImagesInput): Promise<Image[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is:
-    // 1. Validate that the user exists and is authenticated
-    // 2. Fetch all images belonging to the specified user from the database
-    // 3. Return the images ordered by creation date (newest first)
-    // 4. Optionally support pagination for large image collections
-    
-    return Promise.resolve([
-        {
-            id: 1,
-            user_id: input.user_id,
-            filename: "placeholder-image-1.jpg",
-            original_name: "my-photo.jpg",
-            file_path: "/uploads/placeholder-image-1.jpg",
-            file_size: 1024000,
-            mime_type: "image/jpeg",
-            created_at: new Date()
-        }
-    ] as Image[]);
-}
+export const getUserImages = async (input: GetUserImagesInput): Promise<Image[]> => {
+  try {
+    // First verify that the user exists
+    const userExists = await db.select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, input.user_id))
+      .limit(1)
+      .execute();
+
+    if (userExists.length === 0) {
+      throw new Error(`User with id ${input.user_id} not found`);
+    }
+
+    // Fetch all images for the user, ordered by creation date (newest first)
+    const results = await db.select()
+      .from(imagesTable)
+      .where(eq(imagesTable.user_id, input.user_id))
+      .orderBy(desc(imagesTable.created_at))
+      .execute();
+
+    return results;
+  } catch (error) {
+    console.error('Failed to get user images:', error);
+    throw error;
+  }
+};
